@@ -15,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
+    private static final String INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
+
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -38,9 +40,9 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         User user = users.findByEmailIgnoreCase(request.email().trim())
-                .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid email"));
+                .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE));
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid password");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE);
         }
         return response(user);
     }
