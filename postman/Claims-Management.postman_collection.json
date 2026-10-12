@@ -1,0 +1,368 @@
+{
+  "info": {
+    "_postman_id": "c7a5346e-80da-49c3-a369-7ce32e7e50f3",
+    "name": "Claims Management API",
+    "description": "Run requests in collection order. Auth and workflow scripts capture the JWTs, user IDs, and claim IDs used by following requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const today = new Date();",
+          "const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;",
+          "pm.collectionVariables.set('incidentDate', localDate);"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "claimantToken", "value": "" },
+    { "key": "officerToken", "value": "" },
+    { "key": "managerToken", "value": "" },
+    { "key": "officerId", "value": "" },
+    { "key": "claimId", "value": "" },
+    { "key": "rejectionClaimId", "value": "" },
+    { "key": "claimantEmail", "value": "" },
+    { "key": "incidentDate", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Register claimant",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('claimantEmail', `claimant-${Date.now()}@example.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Claimant registration succeeded', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('claimantToken', pm.response.json().token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{claimantEmail}}\",\n  \"password\": \"Claimant123!\",\n  \"fullName\": \"Sample Claimant\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/auth/register"
+          }
+        },
+        {
+          "name": "Login officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Officer login succeeded', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('officerToken', pm.response.json().token);",
+                  "pm.collectionVariables.set('officerId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"officer@claims.local\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "Login manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Manager login succeeded', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('managerToken', pm.response.json().token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"manager@claims.local\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "Get current claimant",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{claimantToken}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create claims",
+      "item": [
+        {
+          "name": "Create claim for approval and settlement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Claim created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('claimId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{claimantToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policyNumber\": \"POL-2026-00042\",\n  \"claimantName\": \"Sample Claimant\",\n  \"claimantEmail\": \"{{claimantEmail}}\",\n  \"incidentDate\": \"{{incidentDate}}\",\n  \"description\": \"Rear bumper damage from a parking collision.\",\n  \"amountClaimed\": 1250.00\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims"
+          }
+        },
+        {
+          "name": "Create claim for rejection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Claim created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('rejectionClaimId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{claimantToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policyNumber\": \"POL-2026-00043\",\n  \"claimantName\": \"Sample Claimant\",\n  \"claimantEmail\": \"{{claimantEmail}}\",\n  \"incidentDate\": \"{{incidentDate}}\",\n  \"description\": \"A second sample incident for the rejection workflow.\",\n  \"amountClaimed\": 275.50\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims"
+          }
+        },
+        {
+          "name": "List claims",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{claimantToken}}" }],
+            "url": "{{baseUrl}}/api/claims"
+          }
+        },
+        {
+          "name": "Get submitted claim",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{claimantToken}}" }],
+            "url": "{{baseUrl}}/api/claims/{{claimId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Manager assignment",
+      "item": [
+        {
+          "name": "Assign approval claim",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{managerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"officerId\": {{officerId}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/assign"
+          }
+        },
+        {
+          "name": "Assign rejection claim",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{managerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"officerId\": {{officerId}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{rejectionClaimId}}/assign"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Officer decisions",
+      "item": [
+        {
+          "name": "Begin review",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{officerToken}}" }],
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/review"
+          }
+        },
+        {
+          "name": "Request more information",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{officerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Please provide the repair estimate and incident report.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/request-info"
+          }
+        },
+        {
+          "name": "Resume review",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{officerToken}}" }],
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/review"
+          }
+        },
+        {
+          "name": "Approve claim",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{officerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Repair estimate reviewed and approved.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/approve"
+          }
+        },
+        {
+          "name": "Settle claim",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{officerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Payment issued to claimant.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{claimId}}/settle"
+          }
+        },
+        {
+          "name": "Begin review of second claim",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{officerToken}}" }],
+            "url": "{{baseUrl}}/api/claims/{{rejectionClaimId}}/review"
+          }
+        },
+        {
+          "name": "Reject second claim",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{officerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"The incident is outside the policy coverage period.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/claims/{{rejectionClaimId}}/reject"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Manager dashboard",
+      "item": [
+        {
+          "name": "Workload dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }],
+            "url": "{{baseUrl}}/api/dashboard/workload"
+          }
+        },
+        {
+          "name": "Liability dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }],
+            "url": "{{baseUrl}}/api/dashboard/liability"
+          }
+        },
+        {
+          "name": "Officer performance dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }],
+            "url": "{{baseUrl}}/api/dashboard/performance"
+          }
+        }
+      ]
+    }
+  ]
+}
