@@ -3,7 +3,6 @@ package com.claims.controller;
 import com.claims.dto.*;
 import com.claims.service.ClaimService;
 import jakarta.validation.Valid;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -28,8 +27,10 @@ public class ClaimController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('CLAIMANT','OFFICER','MANAGER')")
-    public List<ClaimResponse> list(@AuthenticationPrincipal UserDetails user) {
-        return claimService.list(user.getUsername(), false);
+    public PageResponse<ClaimResponse> list(@RequestParam(defaultValue = "0") int page,
+                                            @RequestParam(defaultValue = "20") int size,
+                                            @AuthenticationPrincipal UserDetails user) {
+        return claimService.list(user.getUsername(), false, page, size);
     }
 
     @GetMapping("/{id}")

@@ -27,13 +27,7 @@ class ManagerDashboardServiceTest {
         when(claims.countByStatus(ClaimStatus.APPROVED)).thenReturn(4L);
         when(claims.countByStatus(ClaimStatus.REJECTED)).thenReturn(5L);
         when(claims.countByStatus(ClaimStatus.SETTLED)).thenReturn(6L);
-        when(claims.findAll()).thenReturn(List.of(
-                new com.claims.entity.Claim("CLM-1", "P-1", "A", "a@example.com",
-                        java.time.LocalDate.now(), "Claim description long enough.", BigDecimal.ONE,
-                        new User("a@example.com", "encoded", "A", Role.CLAIMANT)),
-                new com.claims.entity.Claim("CLM-2", "P-2", "B", "b@example.com",
-                        java.time.LocalDate.now(), "Another claim description.", BigDecimal.ONE,
-                        new User("b@example.com", "encoded", "B", Role.CLAIMANT))));
+        when(claims.countByAssignedOfficerIsNull()).thenReturn(2L);
 
         var result = service.workload();
 

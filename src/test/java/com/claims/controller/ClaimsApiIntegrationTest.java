@@ -150,7 +150,14 @@ class ClaimsApiIntegrationTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
         mvc.perform(get(claimsPath).header("Authorization", bearer(claimantToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].claimNumber", hasItem(value(createResult, "claimNumber"))));
+                .andExpect(jsonPath("$.content[*].claimNumber", hasItem(value(createResult, "claimNumber"))))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20));
+        mvc.perform(get(claimsPath + "?page=0&size=1").header("Authorization", bearer(claimantToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2));
 
         mvc.perform(get("/api/dashboard/workload").header("Authorization", bearer(claimantToken)))
                 .andExpect(status().isForbidden())
@@ -183,7 +190,7 @@ class ClaimsApiIntegrationTest {
         assign(managerToken, rejectedClaimId, officerId);
         mvc.perform(get(claimsPath).header("Authorization", bearer(officerToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
+                .andExpect(jsonPath("$.content.length()").value(2));
 
         workflowPut(officerToken, claimId, "review", null, ClaimJsonExpectation.UNDER_REVIEW);
         workflowPut(officerToken, claimId, "request-info", Map.of("note", "Send the repair estimate"),

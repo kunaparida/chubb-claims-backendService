@@ -7,9 +7,12 @@ import com.claims.exception.ResourceNotFoundException;
 import com.claims.mapper.ClaimMapper;
 import com.claims.repository.ClaimRepository;
 import com.claims.repository.UserRepository;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +23,7 @@ public class ClaimService {
     private final ClaimRepository claims;
     private final UserRepository users;
 
+    private static final int MAX_PAGE_SIZE = 100;
     private static final Map<ClaimStatus, Set<ClaimStatus>> TRANSITIONS = Map.of(
             ClaimStatus.SUBMITTED, Set.of(ClaimStatus.UNDER_REVIEW),
             ClaimStatus.UNDER_REVIEW, Set.of(ClaimStatus.MORE_INFO_REQUIRED, ClaimStatus.APPROVED, ClaimStatus.REJECTED),
@@ -46,17 +50,19 @@ public class ClaimService {
     }
 
     @Transactional(readOnly = true)
-    public List<ClaimResponse> list(String actorEmail, boolean manager) {
+    public PageResponse<ClaimResponse> list(String actorEmail, boolean manager, int page, int size) {
         User actor = userByEmail(actorEmail);
-        List<Claim> result = switch (actor.getRole()) {
-            case CLAIMANT -> claims.findByClaimantIdOrderByCreatedAtDesc(actor.getId());
-            case OFFICER -> claims.findByAssignedOfficerIdOrderByCreatedAtDesc(actor.getId());
-            case MANAGER -> claims.findAll();
-        };
         if (manager && actor.getRole() != Role.MANAGER) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "Manager access is required");
         }
-        return result.stream().map(ClaimMapper::toResponse).toList();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id")));
+        Page<Claim> result = switch (actor.getRole()) {
+            case CLAIMANT -> claims.findByClaimantId(actor.getId(), pageable);
+            case OFFICER -> claims.findByAssignedOfficerId(actor.getId(), pageable);
+            case MANAGER -> claims.findAll(pageable);
+        };
+        return PageResponse.of(result.map(ClaimMapper::toResponse));
     }
 
     @Transactional(readOnly = true)
