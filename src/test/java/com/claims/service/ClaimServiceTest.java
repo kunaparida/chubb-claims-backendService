@@ -143,7 +143,7 @@ class ClaimServiceTest {
         when(users.findByEmailIgnoreCase("claimant@example.com")).thenReturn(Optional.of(claimant));
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> claimService.list("claimant@example.com", true));
+                () -> claimService.list("claimant@example.com", true, 0, 20));
 
         assertEquals(403, error.getStatus().value());
     }

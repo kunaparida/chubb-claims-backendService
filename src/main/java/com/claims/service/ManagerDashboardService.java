@@ -32,7 +32,7 @@ public class ManagerDashboardService {
         long approved = claims.countByStatus(ClaimStatus.APPROVED);
         long rejected = claims.countByStatus(ClaimStatus.REJECTED);
         long settled = claims.countByStatus(ClaimStatus.SETTLED);
-        long unassigned = claims.findAll().stream().filter(c -> c.getAssignedOfficer() == null).count();
+        long unassigned = claims.countByAssignedOfficerIsNull();
         return new WorkloadResponse(unassigned, submitted + review + info + approved,
                 submitted, review, info, approved, rejected, settled);
     }
