@@ -138,8 +138,38 @@ class CreateClaimRequestValidationTest {
                 .anyMatch(violation -> violation.getPropertyPath().toString().equals("amountClaimed")));
     }
 
+    @Test
+    void requiresClaimTypeAndATwoLetterMarketCode() {
+        CreateClaimRequest missing = new CreateClaimRequest("POL-1", "Jane", "jane@example.com", LocalDate.now(),
+                "A sufficiently detailed description.", new BigDecimal("10.00"), null, " ");
+        CreateClaimRequest tooLong = new CreateClaimRequest("POL-1", "Jane", "jane@example.com", LocalDate.now(),
+                "A sufficiently detailed description.", new BigDecimal("10.00"), com.claims.entity.ClaimType.MOTOR, "SGP");
+        CreateClaimRequest digits = new CreateClaimRequest("POL-1", "Jane", "jane@example.com", LocalDate.now(),
+                "A sufficiently detailed description.", new BigDecimal("10.00"), com.claims.entity.ClaimType.MOTOR, "S1");
+
+        assertEquals(Set.of("claimType", "market"), fields(missing));
+        assertEquals(Set.of("market"), fields(tooLong));
+        assertEquals(Set.of("market"), fields(digits));
+    }
+
+    @Test
+    void acceptsLowerCaseMarketCodeBecauseTheServiceNormalisesIt() {
+        CreateClaimRequest request = new CreateClaimRequest("POL-1", "Jane", "jane@example.com", LocalDate.now(),
+                "A sufficiently detailed description.", new BigDecimal("10.00"),
+                com.claims.entity.ClaimType.PROPERTY, "hk");
+
+        assertTrue(validator.validate(request).isEmpty());
+    }
+
+    private Set<String> fields(CreateClaimRequest request) {
+        return validator.validate(request).stream()
+                .map(violation -> violation.getPropertyPath().toString())
+                .collect(Collectors.toSet());
+    }
+
     private CreateClaimRequest request(String policy, String name, String email, LocalDate incidentDate,
                                        String description, BigDecimal amount) {
-        return new CreateClaimRequest(policy, name, email, incidentDate, description, amount);
+        return new CreateClaimRequest(policy, name, email, incidentDate, description, amount,
+                com.claims.entity.ClaimType.MOTOR, "SG");
     }
 }

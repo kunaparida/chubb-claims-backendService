@@ -8,6 +8,7 @@ import com.claims.dto.ClaimResponse;
 import com.claims.dto.CreateClaimRequest;
 import com.claims.entity.Claim;
 import com.claims.entity.ClaimStatus;
+import com.claims.entity.ClaimType;
 import com.claims.entity.Role;
 import com.claims.entity.User;
 import com.claims.exception.BusinessException;
@@ -28,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class ClaimServiceTest {
     @Mock ClaimRepository claims;
     @Mock UserRepository users;
+    @Mock ClaimAuditRecorder audit;
     @InjectMocks ClaimService claimService;
 
     private User manager;
@@ -77,7 +79,7 @@ class ClaimServiceTest {
     @Test
     void allowsTheCompleteReviewInformationApprovalAndSettlementLifecycle() {
         Claim claim = new Claim("CLM-TEST", "POL-123", "Jane Claimant", "claimant@example.com",
-                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("1234.56"), claimant);
+                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("1234.56"), ClaimType.MOTOR, "SG", claimant);
         when(users.findByEmailIgnoreCase("manager@claims.local")).thenReturn(Optional.of(manager));
         when(claims.findById(4L)).thenReturn(Optional.of(claim));
         when(claims.save(any(Claim.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -101,7 +103,7 @@ class ClaimServiceTest {
     @Test
     void rejectsTransitionsThatSkipReviewAndDoesNotPersistThem() {
         Claim claim = new Claim("CLM-TEST", "POL-123", "Jane Claimant", "claimant@example.com",
-                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), claimant);
+                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), ClaimType.MOTOR, "SG", claimant);
         when(users.findByEmailIgnoreCase("manager@claims.local")).thenReturn(Optional.of(manager));
         when(claims.findById(7L)).thenReturn(Optional.of(claim));
 
@@ -152,7 +154,7 @@ class ClaimServiceTest {
     void managerCanAssignClaimToAnOfficerAndPersistsAssignment() {
         User officer = new User("officer@example.com", "encoded", "Claims Officer", Role.OFFICER);
         Claim claim = new Claim("CLM-TEST", "POL-123", "Jane Claimant", "claimant@example.com",
-                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), claimant);
+                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), ClaimType.MOTOR, "SG", claimant);
         when(users.findByEmailIgnoreCase("manager@claims.local")).thenReturn(Optional.of(manager));
         when(users.findById(12L)).thenReturn(Optional.of(officer));
         when(claims.findById(10L)).thenReturn(Optional.of(claim));
@@ -167,7 +169,7 @@ class ClaimServiceTest {
     @Test
     void refusesAssignmentToAUserWhoIsNotAnOfficer() {
         Claim claim = new Claim("CLM-TEST", "POL-123", "Jane Claimant", "claimant@example.com",
-                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), claimant);
+                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), ClaimType.MOTOR, "SG", claimant);
         when(users.findByEmailIgnoreCase("manager@claims.local")).thenReturn(Optional.of(manager));
         when(claims.findById(10L)).thenReturn(Optional.of(claim));
         when(users.findById(13L)).thenReturn(Optional.of(claimant));
@@ -179,13 +181,13 @@ class ClaimServiceTest {
 
     private Claim claimWithStatus(ClaimStatus status) {
         Claim claim = new Claim("CLM-" + status, "POL-123", "Jane Claimant", "claimant@example.com",
-                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), claimant);
+                LocalDate.now(), "Rear bumper damage from a parking collision.", new BigDecimal("10.00"), ClaimType.MOTOR, "SG", claimant);
         claim.transitionTo(status);
         return claim;
     }
 
     private CreateClaimRequest request(String email, LocalDate date, BigDecimal amount) {
         return new CreateClaimRequest("POL-123", "Jane Claimant", email, date,
-                "Rear bumper damage from a parking collision.", amount);
+                "Rear bumper damage from a parking collision.", amount, ClaimType.MOTOR, "SG");
     }
 }

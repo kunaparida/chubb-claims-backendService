@@ -254,7 +254,8 @@ class ClaimsApiIntegrationTest {
 
     private Map<String, Object> claimBody(String email, String policy, String description, String amount, String incidentDate) {
         return Map.of("policyNumber", policy, "claimantName", "Jane Claimant", "claimantEmail", email,
-                "incidentDate", incidentDate, "description", description, "amountClaimed", new java.math.BigDecimal(amount));
+                "incidentDate", incidentDate, "description", description, "amountClaimed", new java.math.BigDecimal(amount),
+                "claimType", "MOTOR", "market", "SG");
     }
 
     private enum ClaimJsonExpectation {

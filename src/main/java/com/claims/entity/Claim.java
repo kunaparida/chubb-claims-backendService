@@ -33,6 +33,14 @@ public class Claim {
     private BigDecimal amountClaimed;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ClaimType claimType;
+
+    /** ISO 3166-1 alpha-2 code of the market the claim belongs to (e.g. SG, HK, AU). */
+    @Column(nullable = false, length = 2)
+    private String market;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ClaimStatus status = ClaimStatus.SUBMITTED;
 
@@ -48,6 +56,9 @@ public class Claim {
     private String informationRequest;
 
     @Column(length = 2000)
+    private String informationResponse;
+
+    @Column(length = 2000)
     private String decisionNotes;
 
     @Column(nullable = false, updatable = false)
@@ -59,7 +70,8 @@ public class Claim {
     protected Claim() {}
 
     public Claim(String claimNumber, String policyNumber, String claimantName, String claimantEmail,
-                 java.time.LocalDate incidentDate, String description, BigDecimal amountClaimed, User claimant) {
+                 java.time.LocalDate incidentDate, String description, BigDecimal amountClaimed,
+                 ClaimType claimType, String market, User claimant) {
         this.claimNumber = claimNumber;
         this.policyNumber = policyNumber;
         this.claimantName = claimantName;
@@ -67,6 +79,8 @@ public class Claim {
         this.incidentDate = incidentDate;
         this.description = description;
         this.amountClaimed = amountClaimed;
+        this.claimType = claimType;
+        this.market = market;
         this.claimant = claimant;
     }
 
@@ -76,6 +90,7 @@ public class Claim {
     public void assign(User officer) { assignedOfficer = officer; }
     public void transitionTo(ClaimStatus next) { status = next; }
     public void setInformationRequest(String informationRequest) { this.informationRequest = informationRequest; }
+    public void setInformationResponse(String informationResponse) { this.informationResponse = informationResponse; }
     public void setDecisionNotes(String decisionNotes) { this.decisionNotes = decisionNotes; }
 
     public Long getId() { return id; }
@@ -89,7 +104,10 @@ public class Claim {
     public ClaimStatus getStatus() { return status; }
     public User getClaimant() { return claimant; }
     public User getAssignedOfficer() { return assignedOfficer; }
+    public ClaimType getClaimType() { return claimType; }
+    public String getMarket() { return market; }
     public String getInformationRequest() { return informationRequest; }
+    public String getInformationResponse() { return informationResponse; }
     public String getDecisionNotes() { return decisionNotes; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
