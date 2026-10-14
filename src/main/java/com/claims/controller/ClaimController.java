@@ -1,7 +1,9 @@
 package com.claims.controller;
 
 import com.claims.dto.*;
+import com.claims.entity.ClaimStatus;
 import com.claims.service.ClaimService;
+import java.util.List;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,12 +27,44 @@ public class ClaimController {
         return claimService.create(request, user.getUsername());
     }
 
+    /** Claimants see their own claims, officers their assigned claims, managers all. Optional status filter. */
     @GetMapping
     @PreAuthorize("hasAnyRole('CLAIMANT','OFFICER','MANAGER')")
     public PageResponse<ClaimResponse> list(@RequestParam(defaultValue = "0") int page,
                                             @RequestParam(defaultValue = "20") int size,
+                                            @RequestParam(required = false) ClaimStatus status,
                                             @AuthenticationPrincipal UserDetails user) {
-        return claimService.list(user.getUsername(), false, page, size);
+        return claimService.list(user.getUsername(), false, page, size, status);
+    }
+
+    /** Officer work queue: submitted claims that nobody has picked up yet, oldest first. */
+    @GetMapping("/queue")
+    @PreAuthorize("hasAnyRole('OFFICER','MANAGER')")
+    public PageResponse<ClaimResponse> queue(@RequestParam(defaultValue = "0") int page,
+                                             @RequestParam(defaultValue = "20") int size,
+                                             @AuthenticationPrincipal UserDetails user) {
+        return claimService.queue(user.getUsername(), page, size);
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAnyRole('CLAIMANT','OFFICER','MANAGER')")
+    public List<ClaimHistoryResponse> history(@PathVariable Long id, @AuthenticationPrincipal UserDetails user) {
+        return claimService.history(id, user.getUsername());
+    }
+
+    /** The claimant answers an information request; the claim returns to UNDER_REVIEW. */
+    @PutMapping("/{id}/provide-info")
+    @PreAuthorize("hasRole('CLAIMANT')")
+    public ClaimResponse provideInformation(@PathVariable Long id, @Valid @RequestBody ProvideInformationRequest request,
+                                            @AuthenticationPrincipal UserDetails user) {
+        return claimService.provideInformation(id, request.response(), user.getUsername());
+    }
+
+    /** An officer takes an unassigned claim from the queue. */
+    @PutMapping("/{id}/pickup")
+    @PreAuthorize("hasRole('OFFICER')")
+    public ClaimResponse pickUp(@PathVariable Long id, @AuthenticationPrincipal UserDetails user) {
+        return claimService.pickUp(id, user.getUsername());
     }
 
     @GetMapping("/{id}")

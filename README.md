@@ -39,19 +39,25 @@ Import `postman/Claims-Management.postman_collection.json` and run its requests 
   "claimantEmail": "claimant@example.com",
   "incidentDate": "2026-10-10",
   "description": "Rear bumper damage from a parking collision.",
-  "amountClaimed": 1250.00
+  "amountClaimed": 1250.00,
+  "claimType": "MOTOR",
+  "market": "SG"
 }
 ```
 
-The response includes the generated `claimNumber`, initial status, assigned officer (if any), and creation/update timestamps.
+`claimType` is `MOTOR` or `PROPERTY`. `market` is a 2-letter market code (stored upper case). The response includes the generated `claimNumber`, initial status, assigned officer (if any), the claimant's information response (if any), and creation/update timestamps.
 
 ## API workflows
 
 | Endpoint | Access | Purpose |
 |---|---|---|
 | `POST /api/claims` | CLAIMANT | Submit a claim |
-| `GET /api/claims` | Any authenticated role | List own claims (claimant), assigned claims (officer), or all (manager) |
-| `GET /api/claims/{id}` | Any authenticated role | Retrieve an authorized claim |
+| `GET /api/claims?status=` | Any authenticated role | List own claims (claimant), assigned claims (officer), or all (manager); optional status filter |
+| `GET /api/claims/queue` | OFFICER or MANAGER | Work queue: unassigned `SUBMITTED` claims, oldest first |
+| `GET /api/claims/{id}` | Any authenticated role | Retrieve an authorized claim (officers may open queue claims and their own) |
+| `GET /api/claims/{id}/history` | Same as view | Audit trail of every status change (who, from, to, note, when) |
+| `PUT /api/claims/{id}/pickup` | OFFICER | Officer takes an unassigned claim from the queue |
+| `PUT /api/claims/{id}/provide-info` | CLAIMANT (owner) | Answer an information request with `{"response":"..."}`; claim returns to `UNDER_REVIEW` |
 | `PUT /api/claims/{id}/assign` | OFFICER or MANAGER | Officer self-assigns an unassigned claim; manager can assign an officer with `{"officerId": 2}` |
 | `PUT /api/claims/{id}/review` | Assigned OFFICER or MANAGER | Begin/resume review |
 | `PUT /api/claims/{id}/request-info` | Assigned OFFICER or MANAGER | Request information with `{"note":"..."}` |
@@ -59,10 +65,28 @@ The response includes the generated `claimNumber`, initial status, assigned offi
 | `PUT /api/claims/{id}/reject` | Assigned OFFICER or MANAGER | Reject with decision note |
 | `PUT /api/claims/{id}/settle` | Assigned OFFICER or MANAGER | Settle an approved claim with note |
 | `GET /api/dashboard/workload` | MANAGER | Counts by status and unassigned/open totals |
-| `GET /api/dashboard/liability` | MANAGER | Pending exposure and approved unsettled amount |
+| `GET /api/dashboard/liability` | MANAGER | Pending exposure and approved unsettled amount, also broken down by claim type and market |
 | `GET /api/dashboard/performance` | MANAGER | Assigned, active, and resolved counts per officer |
 
 Allowed status transitions are `SUBMITTED → UNDER_REVIEW`; `UNDER_REVIEW → MORE_INFO_REQUIRED | APPROVED | REJECTED`; `MORE_INFO_REQUIRED → UNDER_REVIEW`; and `APPROVED → SETTLED`. REJECTED and SETTLED are terminal. Invalid transitions return HTTP 409. Claimants can only access their own claims; officers can access claims assigned to them; managers can access all claims. Managers assign officers using the ID returned by `GET /api/auth/me` after officer login.
+
+## Events (transactional outbox)
+
+Every status change (including the initial submission) writes an audit row and an outbox row in the same database transaction. A scheduled relay (`app.outbox.poll-ms`, default 5 s) publishes unpublished rows as `ClaimStatusChanged` events (JSON, key = claim id, topic `claims.claim-status-changed`) and marks them published. Delivery is at-least-once; each event has an `eventId` for de-duplication.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `app.events.publisher` (`EVENTS_PUBLISHER`) | `log` | `log` writes the event to the application log (no broker needed); `kafka` publishes to Kafka |
+| `spring.kafka.bootstrap-servers` | not set | Required when the publisher is `kafka` |
+| `app.events.topic` (`EVENTS_TOPIC`) | `claims.claim-status-changed` | Target topic |
+
+The Kafka publisher is wired and unit-tested but has not been exercised against a real broker.
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): service boundary, data model, REST vs events, security matrix, limitations.
+- [`docs/AI-WORKING-JOURNAL.md`](docs/AI-WORKING-JOURNAL.md): what was asked of the AI, and what I accepted, challenged and overrode.
+- [`docs/WALKTHROUGH-FORMAT.txt`](docs/WALKTHROUGH-FORMAT.txt): walkthrough and demo script, prepared Q&A.
 
 ## Persistence and tests
 
@@ -71,3 +95,5 @@ Allowed status transitions are `SUBMITTED → UNDER_REVIEW`; `UNDER_REVIEW → M
 ```powershell
 mvn test
 ```
+
+The suite (82 tests) covers service rules, the audit recorder, the outbox relay and publishers, validation, and two end-to-end Spring Boot tests on H2. The Postman collection replays the same flow with assertions. If your IDE runs a very new JDK (for example 27), the pom already pins the Byte Buddy version Mockito needs for it (`byte-buddy.version`).

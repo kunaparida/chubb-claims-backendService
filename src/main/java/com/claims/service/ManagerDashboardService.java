@@ -10,6 +10,8 @@ import com.claims.repository.ClaimRepository;
 import com.claims.repository.UserRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,7 +44,26 @@ public class ManagerDashboardService {
         BigDecimal pending = claims.sumAmountByStatusIn(List.of(ClaimStatus.SUBMITTED, ClaimStatus.UNDER_REVIEW,
                 ClaimStatus.MORE_INFO_REQUIRED));
         BigDecimal approved = claims.sumAmountByStatusIn(List.of(ClaimStatus.APPROVED));
-        return new LiabilityResponse(pending, approved);
+        List<ClaimStatus> exposureStatuses = List.of(ClaimStatus.SUBMITTED, ClaimStatus.UNDER_REVIEW,
+                ClaimStatus.MORE_INFO_REQUIRED, ClaimStatus.APPROVED);
+        return new LiabilityResponse(pending, approved,
+                breakdown(claims.sumAmountByClaimTypeAndStatus(exposureStatuses)),
+                breakdown(claims.sumAmountByMarketAndStatus(exposureStatuses)));
+    }
+
+    /** Folds rows of [key, status, amount] into one pending/approved line per key, sorted by key. */
+    private static List<LiabilityResponse.ExposureLine> breakdown(List<Object[]> rows) {
+        Map<String, BigDecimal[]> byKey = new TreeMap<>();
+        for (Object[] row : rows) {
+            BigDecimal[] totals = byKey.computeIfAbsent(String.valueOf(row[0]),
+                    key -> new BigDecimal[] {BigDecimal.ZERO, BigDecimal.ZERO});
+            BigDecimal amount = (BigDecimal) row[2];
+            int slot = row[1] == ClaimStatus.APPROVED ? 1 : 0;
+            totals[slot] = totals[slot].add(amount);
+        }
+        return byKey.entrySet().stream()
+                .map(e -> new LiabilityResponse.ExposureLine(e.getKey(), e.getValue()[0], e.getValue()[1]))
+                .toList();
     }
 
     @Transactional(readOnly = true)

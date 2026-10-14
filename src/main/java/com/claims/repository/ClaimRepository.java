@@ -17,6 +17,23 @@ public interface ClaimRepository extends JpaRepository<Claim, Long> {
     long countByStatus(ClaimStatus status);
     long countByAssignedOfficerIsNull();
 
+    Page<Claim> findByStatus(ClaimStatus status, Pageable pageable);
+    Page<Claim> findByClaimantIdAndStatus(Long claimantId, ClaimStatus status, Pageable pageable);
+    Page<Claim> findByAssignedOfficerIdAndStatus(Long officerId, ClaimStatus status, Pageable pageable);
+
+    /** Officer work queue: claims nobody has picked up yet. */
+    Page<Claim> findByAssignedOfficerIsNullAndStatus(ClaimStatus status, Pageable pageable);
+
+    /** Rows of [claimType, status, sum(amount)] used for the liability breakdown. */
+    @Query("select c.claimType, c.status, sum(c.amountClaimed) from Claim c "
+            + "where c.status in :statuses group by c.claimType, c.status")
+    List<Object[]> sumAmountByClaimTypeAndStatus(@Param("statuses") List<ClaimStatus> statuses);
+
+    /** Rows of [market, status, sum(amount)] used for the liability breakdown. */
+    @Query("select c.market, c.status, sum(c.amountClaimed) from Claim c "
+            + "where c.status in :statuses group by c.market, c.status")
+    List<Object[]> sumAmountByMarketAndStatus(@Param("statuses") List<ClaimStatus> statuses);
+
     @Query("select coalesce(sum(c.amountClaimed), 0) from Claim c where c.status in :statuses")
     java.math.BigDecimal sumAmountByStatusIn(@Param("statuses") List<ClaimStatus> statuses);
 

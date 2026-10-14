@@ -7,6 +7,8 @@ import com.claims.exception.ResourceNotFoundException;
 import com.claims.mapper.ClaimMapper;
 import com.claims.repository.ClaimRepository;
 import com.claims.repository.UserRepository;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.data.domain.Page;
@@ -22,6 +24,7 @@ import com.claims.util.ClaimNumberGenerator;
 public class ClaimService {
     private final ClaimRepository claims;
     private final UserRepository users;
+    private final ClaimAuditRecorder audit;
 
     private static final int MAX_PAGE_SIZE = 100;
     private static final Map<ClaimStatus, Set<ClaimStatus>> TRANSITIONS = Map.of(
@@ -32,9 +35,10 @@ public class ClaimService {
             ClaimStatus.REJECTED, Set.of(),
             ClaimStatus.SETTLED, Set.of());
 
-    public ClaimService(ClaimRepository claims, UserRepository users) {
+    public ClaimService(ClaimRepository claims, UserRepository users, ClaimAuditRecorder audit) {
         this.claims = claims;
         this.users = users;
+        this.audit = audit;
     }
 
     @Transactional
@@ -45,12 +49,25 @@ public class ClaimService {
         }
         Claim claim = new Claim(ClaimNumberGenerator.generate(), request.policyNumber().trim(),
                 request.claimantName().trim(), claimant.getEmail(), request.incidentDate(),
-                request.description().trim(), request.amountClaimed(), claimant);
-        return ClaimMapper.toResponse(claims.save(claim));
+                request.description().trim(), request.amountClaimed(), request.claimType(),
+                request.market().trim().toUpperCase(Locale.ROOT), claimant);
+        Claim saved = claims.save(claim);
+        audit.record(saved, null, ClaimStatus.SUBMITTED, claimant, "Claim submitted");
+        return ClaimMapper.toResponse(saved);
     }
 
     @Transactional(readOnly = true)
     public PageResponse<ClaimResponse> list(String actorEmail, boolean manager, int page, int size) {
+        return list(actorEmail, manager, page, size, null);
+    }
+
+    /**
+     * Claimants see their own claims, officers the claims assigned to them, managers everything.
+     * An optional status narrows the result.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<ClaimResponse> list(String actorEmail, boolean manager, int page, int size,
+                                            ClaimStatus status) {
         User actor = userByEmail(actorEmail);
         if (manager && actor.getRole() != Role.MANAGER) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "Manager access is required");
@@ -58,11 +75,28 @@ public class ClaimService {
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id")));
         Page<Claim> result = switch (actor.getRole()) {
-            case CLAIMANT -> claims.findByClaimantId(actor.getId(), pageable);
-            case OFFICER -> claims.findByAssignedOfficerId(actor.getId(), pageable);
-            case MANAGER -> claims.findAll(pageable);
+            case CLAIMANT -> status == null
+                    ? claims.findByClaimantId(actor.getId(), pageable)
+                    : claims.findByClaimantIdAndStatus(actor.getId(), status, pageable);
+            case OFFICER -> status == null
+                    ? claims.findByAssignedOfficerId(actor.getId(), pageable)
+                    : claims.findByAssignedOfficerIdAndStatus(actor.getId(), status, pageable);
+            case MANAGER -> status == null ? claims.findAll(pageable) : claims.findByStatus(status, pageable);
         };
         return PageResponse.of(result.map(ClaimMapper::toResponse));
+    }
+
+    /** Unassigned, newly submitted claims waiting for an officer to pick them up (oldest first). */
+    @Transactional(readOnly = true)
+    public PageResponse<ClaimResponse> queue(String actorEmail, int page, int size) {
+        User actor = userByEmail(actorEmail);
+        if (actor.getRole() == Role.CLAIMANT) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "Officer or manager access is required");
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(Sort.Direction.ASC, "createdAt").and(Sort.by(Sort.Direction.ASC, "id")));
+        return PageResponse.of(claims.findByAssignedOfficerIsNullAndStatus(ClaimStatus.SUBMITTED, pageable)
+                .map(ClaimMapper::toResponse));
     }
 
     @Transactional(readOnly = true)
@@ -71,6 +105,14 @@ public class ClaimService {
         Claim claim = findClaim(id);
         verifyCanView(claim, actor);
         return ClaimMapper.toResponse(claim);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ClaimHistoryResponse> history(Long id, String actorEmail) {
+        User actor = userByEmail(actorEmail);
+        Claim claim = findClaim(id);
+        verifyCanView(claim, actor);
+        return audit.history(claim.getId());
     }
 
     @Transactional
@@ -94,43 +136,85 @@ public class ClaimService {
         return ClaimMapper.toResponse(claims.save(claim));
     }
 
+    /** An officer takes an unassigned claim from the queue. */
+    @Transactional
+    public ClaimResponse pickUp(Long id, String actorEmail) {
+        User actor = userByEmail(actorEmail);
+        if (actor.getRole() != Role.OFFICER) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "Only officers can pick up claims");
+        }
+        return assign(id, actor.getId(), actorEmail);
+    }
+
     @Transactional
     public ClaimResponse review(Long id, String actorEmail) {
-        Claim claim = authorizedClaim(id, actorEmail);
-        transition(claim, ClaimStatus.UNDER_REVIEW);
-        claim.setInformationRequest(null);
-        return ClaimMapper.toResponse(claims.save(claim));
+        Authorized auth = authorizedClaim(id, actorEmail);
+        ClaimStatus from = auth.claim().getStatus();
+        transition(auth.claim(), ClaimStatus.UNDER_REVIEW);
+        auth.claim().setInformationRequest(null);
+        return persist(auth.claim(), from, auth.actor(), null);
     }
 
     @Transactional
     public ClaimResponse requestInformation(Long id, String note, String actorEmail) {
-        Claim claim = authorizedClaim(id, actorEmail);
-        transition(claim, ClaimStatus.MORE_INFO_REQUIRED);
-        claim.setInformationRequest(note.trim());
-        return ClaimMapper.toResponse(claims.save(claim));
+        Authorized auth = authorizedClaim(id, actorEmail);
+        ClaimStatus from = auth.claim().getStatus();
+        transition(auth.claim(), ClaimStatus.MORE_INFO_REQUIRED);
+        auth.claim().setInformationRequest(note.trim());
+        auth.claim().setInformationResponse(null);
+        return persist(auth.claim(), from, auth.actor(), note.trim());
+    }
+
+    /** The claimant answers an information request; the claim goes back to review. */
+    @Transactional
+    public ClaimResponse provideInformation(Long id, String response, String actorEmail) {
+        User actor = userByEmail(actorEmail);
+        Claim claim = findClaim(id);
+        if (actor.getRole() != Role.CLAIMANT || !claim.getClaimant().getId().equals(actor.getId())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "Claim not found");
+        }
+        if (claim.getStatus() != ClaimStatus.MORE_INFO_REQUIRED) {
+            throw new BusinessException(HttpStatus.CONFLICT,
+                    "No additional information has been requested for this claim");
+        }
+        ClaimStatus from = claim.getStatus();
+        transition(claim, ClaimStatus.UNDER_REVIEW);
+        claim.setInformationResponse(response.trim());
+        return persist(claim, from, actor, response.trim());
     }
 
     @Transactional
     public ClaimResponse decide(Long id, ClaimStatus next, String note, String actorEmail) {
-        Claim claim = authorizedClaim(id, actorEmail);
-        transition(claim, next);
-        claim.setDecisionNotes(note == null ? null : note.trim());
-        return ClaimMapper.toResponse(claims.save(claim));
+        Authorized auth = authorizedClaim(id, actorEmail);
+        ClaimStatus from = auth.claim().getStatus();
+        transition(auth.claim(), next);
+        String cleanNote = note == null ? null : note.trim();
+        auth.claim().setDecisionNotes(cleanNote);
+        return persist(auth.claim(), from, auth.actor(), cleanNote);
     }
 
-    private Claim authorizedClaim(Long id, String email) {
+    private ClaimResponse persist(Claim claim, ClaimStatus from, User actor, String note) {
+        Claim saved = claims.save(claim);
+        audit.record(saved, from, saved.getStatus(), actor, note);
+        return ClaimMapper.toResponse(saved);
+    }
+
+    private record Authorized(User actor, Claim claim) {}
+
+    private Authorized authorizedClaim(Long id, String email) {
         User actor = userByEmail(email);
         Claim claim = findClaim(id);
         if (actor.getRole() != Role.MANAGER) requireAssignedOfficer(claim, actor);
-        return claim;
+        return new Authorized(actor, claim);
     }
 
+    /** Officers can see claims in the queue (unassigned) and claims assigned to themselves, nobody else's. */
     private void verifyCanView(Claim claim, User actor) {
         if (actor.getRole() == Role.CLAIMANT && !claim.getClaimant().getId().equals(actor.getId())) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "Claim not found");
         }
-        if (actor.getRole() == Role.OFFICER && (claim.getAssignedOfficer() == null
-                || !claim.getAssignedOfficer().getId().equals(actor.getId()))) {
+        if (actor.getRole() == Role.OFFICER && claim.getAssignedOfficer() != null
+                && !claim.getAssignedOfficer().getId().equals(actor.getId())) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "Claim not found");
         }
     }
